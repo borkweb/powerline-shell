@@ -21,10 +21,14 @@ class Color:
     CWD_FG = 254  # nearly-white grey
     SEPARATOR_FG = 244
 
-    REPO_CLEAN_BG = 148  # a light green color
+    REPO_CLEAN_BG = 76  # a green color
     REPO_CLEAN_FG = 0  # black
-    REPO_DIRTY_BG = 161  # pink/red
+    REPO_DIRTY_BG = 98  # purple
     REPO_DIRTY_FG = 15  # white
+    REPO_CLEAN_MASTER_BG = 196  # pink/red
+    REPO_CLEAN_MASTER_FG = 15  # white
+    REPO_DIRTY_MASTER_BG = 196  # red
+    REPO_DIRTY_MASTER_FG = 190  # yellow
 
     CMD_PASSED_BG = 236
     CMD_PASSED_FG = 15
@@ -35,7 +39,7 @@ class Color:
     SVN_CHANGES_FG = 22  # dark green
 
     VIRTUAL_ENV_BG = 35  # a mid-tone green
-    VIRTUAL_ENV_FG = 00
+    VIRTUAL_ENV_FG = 22
 
 
 class Powerline:
@@ -133,9 +137,13 @@ def add_cwd_segment(powerline, cwd, maxdepth, cwd_only=False):
     home = os.getenv('HOME')
     cwd = cwd or os.getenv('PWD')
     cwd = cwd.decode('utf-8')
+    www = '/Library/WebServer/Documents'
 
     if cwd.find(home) == 0:
         cwd = cwd.replace(home, '~', 1)
+
+    if cwd.find(www) == 0:
+      cwd = cwd.replace( www, '~/www', 1 )
 
     if cwd[0] == '/':
         cwd = cwd[1:]
@@ -193,8 +201,10 @@ def add_hg_segment(powerline, cwd):
 def get_git_status():
     has_pending_commits = True
     has_untracked_files = False
+    detached_head = False
     origin_position = ""
-    output = subprocess.Popen(['git', 'status', '--ignore-submodules'],
+    current_branch = ''
+    output = subprocess.Popen(['git', 'status', '-unormal'],
             stdout=subprocess.PIPE).communicate()[0]
     for line in output.split('\n'):
         origin_status = re.findall(
@@ -206,11 +216,15 @@ def get_git_status():
             if origin_status[0][0] == 'ahead':
                 origin_position += u'\u21E1'
 
-        if line.find('nothing to commit') >= 0:
+        if line.find('nothing to commit (working directory clean)') >= 0:
             has_pending_commits = False
         if line.find('Untracked files') >= 0:
             has_untracked_files = True
-    return has_pending_commits, has_untracked_files, origin_position
+        if line.find('Not currently on any branch') >= 0:
+            detached_head = True
+        if line.find('On branch') >= 0:
+            current_branch = re.findall('On branch ([^ ]+)', line)[0]
+    return has_pending_commits, has_untracked_files, origin_position, detached_head, current_branch
 
 
 def add_git_segment(powerline, cwd):
@@ -222,14 +236,37 @@ def add_git_segment(powerline, cwd):
         return False
 
     branch = output.rstrip()[2:]
-    has_pending_commits, has_untracked_files, origin_position = get_git_status()
+    has_pending_commits, has_untracked_files, origin_position, detached_head, current_branch = get_git_status()
+
+    if current_branch:
+      branch = current_branch
+    elif detached_head:
+       branch = subprocess.Popen(['git', 'describe', '--all', '--contains', '--abbrev=4', 'HEAD'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+       branch = '((' + branch.communicate()[0].strip() + '))'
+    else:
+      return 'master'
+
+    is_master = False
+    if 'master' == branch:
+      is_master = True
+
     branch += origin_position
+
     if has_untracked_files:
         branch += ' +'
 
-    bg = Color.REPO_CLEAN_BG
-    fg = Color.REPO_CLEAN_FG
+    if is_master:
+      bg = Color.REPO_CLEAN_MASTER_BG
+      fg = Color.REPO_CLEAN_MASTER_FG
+    else:
+      bg = Color.REPO_CLEAN_BG
+      fg = Color.REPO_CLEAN_FG
+
     if has_pending_commits:
+      if is_master:
+        bg = Color.REPO_DIRTY_MASTER_BG
+        fg = Color.REPO_DIRTY_MASTER_FG
+      else:
         bg = Color.REPO_DIRTY_BG
         fg = Color.REPO_DIRTY_FG
 
